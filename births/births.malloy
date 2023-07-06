@@ -1,0 +1,74 @@
+sql: births_sql is {
+  select: """
+  WITH births_union AS (
+    SELECT * FROM 'US_births_1994-2003_CDC_NCHS.csv'
+    UNION ALL
+    SELECT * FROM 'US_births_2000-2014_SSA.csv'
+  )
+  SELECT
+    year
+    , month
+    , date_of_month
+    , day_of_week
+    , MAX(births) AS births
+  FROM births_union
+  GROUP BY 1,2,3,4
+  ORDER BY 1,2,3,4
+  """
+  connection: "duckdb"
+}
+
+source: births is from_sql(births_sql) {
+  dimension:
+    year_born is `year`
+    month_born is `month`
+    day_born is `date_of_month`
+
+  measure:
+    avg_daily_births is avg(births)
+}
+
+# line_chart
+query: births -> {
+  group_by: year_born
+  aggregate: avg_daily_births
+  group_by: month_born
+}
+
+query: births -> {
+  group_by: month_born
+  aggregate: avg_daily_births
+  order_by: month_born
+
+  # line_chart
+  nest: by_year is {
+    group_by: year_born
+    aggregate: avg_daily_births
+  }
+}
+
+// Step 1: For each month, calculate the percentage of the year's births that occurred in that month.
+// Step 2: Calculate the avg share of year's birth for each month, then calculate how that share changes over time.
+query: births -> {
+  group_by:
+    year_born
+    month_born
+
+  aggregate:
+    pct_of_years_births is sum(births) / all(sum(births), year_born)
+
+  order_by:
+    year_born
+    month_born
+} -> {
+  group_by: month_born
+  # percent
+  aggregate: avg_pct is avg(pct_of_years_births)
+  order_by: month_born
+
+  # line_chart
+  nest: by_year is {
+    group_by: year_born
+    aggregate: pct_of_years_births is avg(pct_of_years_births)
+  }
+}
